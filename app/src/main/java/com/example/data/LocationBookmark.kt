@@ -13,5 +13,6 @@ data class LocationBookmark(
     val accuracy: Float = 0f,
     val directionAngle: Float = 0f, // Direction bearing in degrees when bookmarked
     val address: String = "",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val isHistory: Boolean = false
 )

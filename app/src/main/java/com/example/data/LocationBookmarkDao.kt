@@ -5,8 +5,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LocationBookmarkDao {
-    @Query("SELECT * FROM location_bookmarks ORDER BY timestamp DESC")
+    @Query("SELECT * FROM location_bookmarks WHERE isHistory = 0 ORDER BY timestamp DESC")
     fun getAllBookmarks(): Flow<List<LocationBookmark>>
+
+    @Query("SELECT * FROM location_bookmarks WHERE isHistory = 1 ORDER BY timestamp DESC")
+    fun getAllHistory(): Flow<List<LocationBookmark>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: LocationBookmark): Long
@@ -19,6 +22,9 @@ interface LocationBookmarkDao {
 
     @Query("DELETE FROM location_bookmarks WHERE id = :id")
     suspend fun deleteBookmarkById(id: Int)
+
+    @Query("DELETE FROM location_bookmarks WHERE isHistory = 1")
+    suspend fun clearHistory()
 
     @Query("SELECT * FROM location_bookmarks WHERE id = :id LIMIT 1")
     suspend fun getBookmarkById(id: Int): LocationBookmark?

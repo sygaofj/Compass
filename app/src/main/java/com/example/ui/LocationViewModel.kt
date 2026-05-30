@@ -52,6 +52,20 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
             initialValue = emptyList()
         )
 
+    // History Flow from Database (Footsteps)
+    val history: StateFlow<List<LocationBookmark>> = repository.allHistory
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    private val _magneticFieldStrength = MutableStateFlow(0f)
+    val magneticFieldStrength: StateFlow<Float> = _magneticFieldStrength.asStateFlow()
+
+    private val _isMagneticInterference = MutableStateFlow(false)
+    val isMagneticInterference: StateFlow<Boolean> = _isMagneticInterference.asStateFlow()
+
     // Sensor Management
     private val sensorManager = application.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -380,6 +394,43 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
         simulationJob = null
     }
 
+    private var lastRecordedHistoryTime = 0L
+    private var lastRecordedLat = 0.0
+    private var lastRecordedLng = 0.0
+
+    private fun maybeRecordHistory(location: Location) {
+        val now = System.currentTimeMillis()
+        val latDiff = Math.abs(location.latitude - lastRecordedLat)
+        val lngDiff = Math.abs(location.longitude - lastRecordedLng)
+        // Record at most once every 30 seconds or if moved by ~15-20 meters
+        if (now - lastRecordedHistoryTime > 30000L || latDiff > 0.00015 || lngDiff > 0.00015) {
+            lastRecordedHistoryTime = now
+            lastRecordedLat = location.latitude
+            lastRecordedLng = location.longitude
+            
+            viewModelScope.launch(Dispatchers.IO) {
+                delay(800L) // Wait slightly for Geocoder address retrieval to succeed
+                val geocoderText = _addressFlow.value
+                val format = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.CHINA)
+                val timeString = format.format(Date(now))
+                val dir = _azimuthFlow.value
+                repository.insertBookmark(
+                    LocationBookmark(
+                        name = "自动定位 $timeString",
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        altitude = location.altitude,
+                        accuracy = location.accuracy,
+                        directionAngle = dir,
+                        address = geocoderText,
+                        isHistory = true,
+                        timestamp = now
+                    )
+                )
+            }
+        }
+    }
+
     private fun handleNewLocation(location: Location, isMocked: Boolean) {
         // If we received a real GPS coordinate and simulation is currently locked to GPS, handle it
         if (!isMocked && _isSimulationActive.value) {
@@ -389,6 +440,7 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
 
         _currentLocation.value = location
         fetchAddress(location.latitude, location.longitude)
+        maybeRecordHistory(location)
     }
 
     // Reverse geocode coordinate to localized address
@@ -468,6 +520,12 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun clearHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.clearHistory()
+        }
+    }
+
     fun updateBookmarkName(bookmark: LocationBookmark, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.updateBookmark(bookmark.copy(name = newName))
@@ -483,6 +541,15 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
         if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
             System.arraycopy(event.values, 0, geomagnetic, 0, event.values.size)
             hasGeomagnetic = true
+
+            // Calculate Earth magnetic field magnitude (microtesla - uT)
+            val magX = event.values[0]
+            val magY = event.values[1]
+            val magZ = event.values[2]
+            val fieldStrength = Math.sqrt((magX * magX + magY * magY + magZ * magZ).toDouble()).toFloat()
+            _magneticFieldStrength.value = fieldStrength
+            // Standard earth field is 25 - 65 uT. Set strict safe threshold (20 uT to 75 uT)
+            _isMagneticInterference.value = (fieldStrength < 22f || fieldStrength > 72f)
         }
 
         if (hasGravity && hasGeomagnetic) {

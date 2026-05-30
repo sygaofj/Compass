@@ -198,6 +198,16 @@ fun MainScreen(viewModel: LocationViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
+            // Keep screen on continuously when app is visible (keeps compass functional during testing and field use)
+            val act = android.app.LocalActivityManager::class.java // generic safety checked
+            val activity = context as? android.app.Activity
+            DisposableEffect(Unit) {
+                activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                onDispose {
+                    activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+
             // Tab bar
             TabRow(
                 selectedTabIndex = selectedTab,
@@ -226,7 +236,7 @@ fun MainScreen(viewModel: LocationViewModel, modifier: Modifier = Modifier) {
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "指南针和定位",
+                            text = "罗盘和定位",
                             color = if (selectedTab == 0) AccentOrange else Color.Gray,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -263,6 +273,36 @@ fun MainScreen(viewModel: LocationViewModel, modifier: Modifier = Modifier) {
                         )
                     }
                 }
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    modifier = Modifier.testTag("tab_history")
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val historyList by viewModel.history.collectAsStateWithLifecycle()
+                        BadgedBox(badge = {
+                            if (historyList.isNotEmpty()) {
+                                Badge(containerColor = NeonCyan) {
+                                    Text(text = historyList.size.toString(), color = Color.Black)
+                                }
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "轨迹",
+                                tint = if (selectedTab == 2) NeonCyan else Color.Gray,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "自动历史足迹",
+                            color = if (selectedTab == 2) NeonCyan else Color.Gray,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
 
             if (!permissionState.allPermissionsGranted) {
@@ -273,10 +313,10 @@ fun MainScreen(viewModel: LocationViewModel, modifier: Modifier = Modifier) {
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    if (selectedTab == 0) {
-                        CompassTabContent(viewModel = viewModel)
-                    } else {
-                        BookmarksTabContent(viewModel = viewModel)
+                    when (selectedTab) {
+                        0 -> CompassTabContent(viewModel = viewModel)
+                        1 -> BookmarksTabContent(viewModel = viewModel)
+                        2 -> HistoryTabContent(viewModel = viewModel)
                     }
                 }
             }
@@ -344,6 +384,10 @@ fun CompassTabContent(viewModel: LocationViewModel) {
     val gpsCount by viewModel.gpsCount.collectAsStateWithLifecycle()
     val glonassCount by viewModel.glonassCount.collectAsStateWithLifecycle()
 
+    // Magnetic fields
+    val isMagneticInterference by viewModel.isMagneticInterference.collectAsStateWithLifecycle()
+    val magneticFieldStrength by viewModel.magneticFieldStrength.collectAsStateWithLifecycle()
+
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveNameInput by remember { mutableStateOf("") }
 
@@ -356,6 +400,50 @@ fun CompassTabContent(viewModel: LocationViewModel) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Automatic Calibration/Magnetic Interference Warning Banner
+        AnimatedVisibility(
+            visible = isMagneticInterference,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF6B1818)),
+                border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "磁力干扰",
+                        tint = Color.Red,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "磁强校准提示：检测到磁力场异常",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "传感器当前测得 ${String.format(Locale.US, "%.1f", magneticFieldStrength)} μT (安全范围: 22-72 μT)。周围疑似有金属或电子设备磁场强干扰。请握紧手机在开阔处像写“8”字一样挥动，即可对感应天线校准恢复准确性。",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(10.dp))
 
         // Compass Graphic Drawing in Canvas
@@ -401,6 +489,21 @@ fun CompassTabContent(viewModel: LocationViewModel) {
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                // Magnetic environment status readout
+                Surface(
+                    color = if (isMagneticInterference) Color(0xFF4A1010) else Color(0xFF0F2D1F),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (isMagneticInterference) Color.Red.copy(alpha = 0.5f) else Color(0xFF2ECC71).copy(alpha = 0.3f))
+                ) {
+                    Text(
+                        text = "磁场: ${String.format(Locale.US, "%.1f", magneticFieldStrength)} μT (${if (isMagneticInterference) "有强干扰" else "磁电充足"})",
+                        color = if (isMagneticInterference) Color(0xFFEF5350) else Color(0xFF2ECC71),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 
@@ -571,12 +674,12 @@ fun CompassTabContent(viewModel: LocationViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     CoordinateItem(
                         title = "经度 (Longitude)",
-                        value = if (location != null) String.format(Locale.US, "%.7f° %s", Math.abs(location!!.longitude), if (location!!.longitude >= 0) "E" else "W") else "--",
+                        value = if (location != null) String.format(Locale.US, "%.6f° %s", Math.abs(location!!.longitude), if (location!!.longitude >= 0) "E" else "W") else "--",
                         modifier = Modifier.weight(1f)
                     )
                     CoordinateItem(
                         title = "纬度 (Latitude)",
-                        value = if (location != null) String.format(Locale.US, "%.7f° %s", Math.abs(location!!.latitude), if (location!!.latitude >= 0) "N" else "S") else "--",
+                        value = if (location != null) String.format(Locale.US, "%.6f° %s", Math.abs(location!!.latitude), if (location!!.latitude >= 0) "N" else "S") else "--",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1373,5 +1476,238 @@ private fun getChineseBearingDirection(degrees: Float): String {
         in 247.5..292.5 -> "正西 W"
         in 292.5..337.5 -> "西北 NW"
         else -> "未知"
+    }
+}
+
+@Composable
+fun HistoryTabContent(viewModel: LocationViewModel) {
+    val context = LocalContext.current
+    val historyList by viewModel.history.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "全自动轨迹足迹",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "累计自动测算留存: ${historyList.size} 处",
+                    color = TextGray,
+                    fontSize = 12.sp
+                )
+            }
+            if (historyList.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        viewModel.clearHistory()
+                        Toast.makeText(context, "历史轨迹已被安全抹除", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF5350)),
+                    modifier = Modifier.testTag("clear_history_button")
+                ) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = "一键清空", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "安全清空", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        if (historyList.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.History,
+                    contentDescription = "暂无足迹",
+                    tint = Color.Gray.copy(alpha = 0.5f),
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "自动历史足迹为空",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "在开阔的户外行动时，罗盘将通过本地北斗及GPS高精解码模块，在时间/物理发生跨步位移时自动将坐标留存到本地安全沙盒（即使在断网无信号盲区），保障数据绝对物理隐私。",
+                    color = TextGray,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("history_list")
+            ) {
+                items(historyList, key = { it.id }) { item ->
+                    HistoryCard(
+                        item = item,
+                        onDelete = {
+                            viewModel.deleteBookmark(item)
+                            Toast.makeText(context, "测定节点已单条抹除", Toast.LENGTH_SHORT).show()
+                        },
+                        onShare = {
+                            shareSavedBookmark(context, item)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HistoryCard(
+    item: LocationBookmark,
+    onDelete: () -> Unit,
+    onShare: () -> Unit
+) {
+    val context = LocalContext.current
+    val parsedDate = remember(item.timestamp) {
+        val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault())
+        sdf.format(Date(item.timestamp))
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("history_card_${item.id}"),
+        colors = CardDefaults.cardColors(containerColor = PanelDarkBg),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.04f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(NeonCyan)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = parsedDate,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Row {
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = "分享", tint = AccentOrange, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Delete, contentDescription = "删除", tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Coords Grid
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(text = "测定纬度", color = TextGray, fontSize = 9.sp)
+                    Text(
+                        text = String.format(Locale.US, "%.6f° %s", Math.abs(item.latitude), if (item.latitude >= 0) "N" else "S"),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Column {
+                    Text(text = "测定经度", color = TextGray, fontSize = 9.sp)
+                    Text(
+                        text = String.format(Locale.US, "%.6f° %s", Math.abs(item.longitude), if (item.longitude >= 0) "E" else "W"),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Column {
+                    Text(text = "测算高程", color = TextGray, fontSize = 9.sp)
+                    Text(
+                        text = "${String.format(Locale.US, "%.1f", item.altitude)} 米",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            if (item.address.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.LocationOn, contentDescription = "详细街道地址描述", tint = NeonCyan, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = item.address,
+                        color = TextGray,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            if (item.directionAngle != 0f) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Explore, contentDescription = "航向角", tint = AccentOrange, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "记录方位朝向 ${item.directionAngle.toInt()}° (${getChineseBearingDirection(item.directionAngle)})",
+                        color = TextGray,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
     }
 }
