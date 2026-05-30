@@ -1,0 +1,6 @@
+{
+  "name": "指南针定位工具箱",
+  "description": "高精度的手机指南针与经纬度定位应用，支持离线保存位置书签及快速一键分享功能。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
