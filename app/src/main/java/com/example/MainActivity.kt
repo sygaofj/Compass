@@ -48,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.LocationBookmark
 import com.example.ui.LocationViewModel
+import com.example.ui.SatelliteInfo
 import com.example.ui.theme.MyApplicationTheme
 import com.google.accompanist.permissions.*
 import java.text.SimpleDateFormat
@@ -336,6 +337,13 @@ fun CompassTabContent(viewModel: LocationViewModel) {
     val location by viewModel.currentLocation.collectAsStateWithLifecycle()
     val address by viewModel.addressFlow.collectAsStateWithLifecycle()
 
+    // BeiDou / GNSS flows
+    val isSimulationActive by viewModel.isSimulationActive.collectAsStateWithLifecycle()
+    val satellites by viewModel.satellites.collectAsStateWithLifecycle()
+    val beidouCount by viewModel.beidouCount.collectAsStateWithLifecycle()
+    val gpsCount by viewModel.gpsCount.collectAsStateWithLifecycle()
+    val glonassCount by viewModel.glonassCount.collectAsStateWithLifecycle()
+
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveNameInput by remember { mutableStateOf("") }
 
@@ -396,20 +404,161 @@ fun CompassTabContent(viewModel: LocationViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // --- NEW: BeiDou Assistance Control Panel ---
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = PanelDarkBg),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, if (isSimulationActive) NeonCyan.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "辅助定位",
+                            tint = if (isSimulationActive) NeonCyan else AccentOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "北斗高精度辅助定位",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isSimulationActive) "已开启数字差分RTK厘米级解算" else "物理硬件直连侦听中",
+                                color = if (isSimulationActive) NeonCyan else TextGray,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isSimulationActive,
+                        onCheckedChange = { viewModel.toggleSimulation(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = NeonCyan,
+                            checkedTrackColor = NeonCyan.copy(alpha = 0.3f),
+                            uncheckedThumbColor = Color.LightGray,
+                            uncheckedTrackColor = Color.DarkGray
+                        ),
+                        modifier = Modifier.testTag("beidou_simulation_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider(color = Color.White.copy(alpha = 0.08f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Constellation satellite info badges
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ConstellationBadge(
+                        title = "BDS 北斗",
+                        count = beidouCount,
+                        color = Color(0xFFFF5722),
+                        modifier = Modifier.weight(1f)
+                    )
+                    ConstellationBadge(
+                        title = "GPS 卫星",
+                        count = gpsCount,
+                        color = Color(0xFF00E5FF),
+                        modifier = Modifier.weight(1f)
+                    )
+                    ConstellationBadge(
+                        title = "GLONASS",
+                        count = glonassCount,
+                        color = Color(0xFF4CAF50),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // If satellites info present, show visual SNR bars for top signals!
+                if (satellites.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "强信号卫星通道载噪比 (CN0)",
+                        color = TextGray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(60.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        satellites.take(8).forEach { sat ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Bottom,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = sat.snr.toInt().toString(),
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .width(6.dp)
+                                        .height((sat.snr * 1.0f).dp.coerceIn(4.dp, 40.dp))
+                                        .background(
+                                            color = when (sat.constellationType) {
+                                                "BeiDou" -> Color(0xFFFF5722)
+                                                "GPS" -> Color(0xFF00E5FF)
+                                                else -> Color(0xFF4CAF50)
+                                            },
+                                            shape = RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)
+                                        )
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = when (sat.constellationType) {
+                                        "BeiDou" -> "B${sat.prn % 100}"
+                                        "GPS" -> "G${sat.prn}"
+                                        else -> "R${sat.prn}"
+                                    },
+                                    color = TextGray,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Position Stats Grid card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 4.dp),
             colors = CardDefaults.cardColors(containerColor = PanelDarkBg),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "GPS 卫星传感器报表",
+                    text = "卫星精密解算报表",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -421,13 +570,13 @@ fun CompassTabContent(viewModel: LocationViewModel) {
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     CoordinateItem(
-                        title = "纬度 (Latitude)",
-                        value = if (location != null) String.format(Locale.US, "%.6f° %s", Math.abs(location!!.latitude), if (location!!.latitude >= 0) "N" else "S") else "--",
+                        title = "经度 (Longitude)",
+                        value = if (location != null) String.format(Locale.US, "%.7f° %s", Math.abs(location!!.longitude), if (location!!.longitude >= 0) "E" else "W") else "--",
                         modifier = Modifier.weight(1f)
                     )
                     CoordinateItem(
-                        title = "经度 (Longitude)",
-                        value = if (location != null) String.format(Locale.US, "%.6f° %s", Math.abs(location!!.longitude), if (location!!.longitude >= 0) "E" else "W") else "--",
+                        title = "纬度 (Latitude)",
+                        value = if (location != null) String.format(Locale.US, "%.7f° %s", Math.abs(location!!.latitude), if (location!!.latitude >= 0) "N" else "S") else "--",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -436,18 +585,20 @@ fun CompassTabContent(viewModel: LocationViewModel) {
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     CoordinateItem(
-                        title = "物理海拔高度",
-                        value = if (location != null) "${String.format(Locale.US, "%.1f", location!!.altitude)} 米" else "--",
+                        title = "物理及大地高 (Altitude)",
+                        value = if (location != null) "${String.format(Locale.US, "%.2f", location!!.altitude)} 米" else "--",
                         modifier = Modifier.weight(1f)
                     )
                     CoordinateItem(
-                        title = "定位精准度",
-                        value = if (location != null) "± ${String.format(Locale.US, "%.1f", location!!.accuracy)} 米" else "--",
+                        title = "三维定位精度 (Accuracy)",
+                        value = if (location != null) "± ${String.format(Locale.US, "%.2f", location!!.accuracy)} 米" else "--",
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Resolving physical address card
         Card(
@@ -606,6 +757,47 @@ fun CompassTabContent(viewModel: LocationViewModel) {
             containerColor = PanelDarkBg,
             shape = RoundedCornerShape(16.dp)
         )
+    }
+}
+
+@Composable
+fun ConstellationBadge(title: String, count: Int, color: Color, modifier: Modifier = Modifier) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.25f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = title,
+                color = TextGray,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "${count} 颗",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
