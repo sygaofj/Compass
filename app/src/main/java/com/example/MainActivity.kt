@@ -431,14 +431,14 @@ fun CompassTabContent(viewModel: LocationViewModel) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "北斗高精度辅助定位",
+                                text = "北斗三号仿真测试信号",
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = if (isSimulationActive) "已开启数字差分RTK厘米级解算" else "物理硬件直连侦听中",
-                                color = if (isSimulationActive) NeonCyan else TextGray,
+                                text = if (isSimulationActive) "已启用仿真轨迹(北京奥林匹克公园)" else "已成功连接设备真实GPS与北斗芯片",
+                                color = if (isSimulationActive) NeonCyan else AccentOrange,
                                 fontSize = 11.sp
                             )
                         }

@@ -94,7 +94,7 @@ class LocationViewModel(application: Application) : AndroidViewModel(application
 
     // Control simulation / Demo state.
     // If true, the system animates a precise walking route nearby with active simulated satellites
-    private val _isSimulationActive = MutableStateFlow(true) // Default to true so emulators see beautiful live data instantly
+    private val _isSimulationActive = MutableStateFlow(false) // Default to false to query real GPS hardware immediately
     val isSimulationActive: StateFlow<Boolean> = _isSimulationActive.asStateFlow()
 
     private var simulationJob: Job? = null
